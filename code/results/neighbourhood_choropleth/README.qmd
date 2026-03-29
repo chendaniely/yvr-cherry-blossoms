@@ -1,11 +1,10 @@
 ---
 title: "Cherry Blossoms by Vancouver Neighbourhood"
 format:
-  gfm:
+  html:
     embed-resources: true
     toc: true
     toc-depth: 2
-    prefer-html: true
 ---
 
 ```{r}
