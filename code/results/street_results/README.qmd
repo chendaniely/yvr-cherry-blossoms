@@ -1,0 +1,276 @@
+---
+title: "Vancouver Cherry Blossoms — Street Analysis"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-depth: 2
+---
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(sf)
+library(dplyr)
+library(mapgl)
+library(DT)
+library(here)
+```
+
+```{r}
+#| label: load-data
+#| message: false
+
+streets_sf     <- st_read(here("data/processed/streets_counted.geojson"), quiet = TRUE)
+street_summary <- read.csv(here("data/processed/street_summary.csv"))
+```
+
+## Streets by total cherry blossom count
+
+Streets with more trees are darker red. Grey lines are streets with no cherry blossoms.
+
+```{r}
+#| label: map-count
+
+all_streets <- st_read(here("data/final/streets.geojson"), quiet = TRUE)
+
+maplibre(style = openfreemap_style("bright"), bounds = streets_sf) %>%
+  add_line_layer(
+    id           = "all-streets",
+    source       = all_streets,
+    line_color   = "#dddddd",
+    line_width   = 1,
+    line_opacity = 0.4
+  ) %>%
+  add_line_layer(
+    id         = "streets-count",
+    source     = streets_sf,
+    line_color = interpolate(
+      column = "total_trees",
+      values = c(1, median(streets_sf$total_trees), max(streets_sf$total_trees)),
+      stops  = c("#fde0c5", "#f4895f", "#7f0000")
+    ),
+    line_width   = interpolate(
+      column = "total_trees",
+      values = c(1, max(streets_sf$total_trees)),
+      stops  = c(1.5, 6)
+    ),
+    line_opacity = 0.9,
+    tooltip      = "street_label",
+    popup        = concat(
+      "<b>", get_column("street_label"), "</b><br/>",
+      "Trees: ", get_column("total_trees"), "<br/>",
+      "Length: ", number_format(get_column("total_length"), 0), "m"
+    )
+  )
+```
+
+```{r}
+#| label: table-count
+
+street_summary %>%
+  arrange(desc(total_trees)) %>%
+  transmute(
+    Street          = street_label,
+    Type            = street_type,
+    `Total trees`   = total_trees,
+    `Length (m)`    = round(total_length),
+    `Trees / 100m`  = round(density, 1),
+    Segments        = n_segments
+  ) %>%
+  head(30) %>%
+  datatable(
+    caption  = "Top 30 streets by total cherry blossoms",
+    rownames = FALSE,
+    options  = list(pageLength = 30, dom = "t")
+  )
+```
+
+## Streets by cherry blossom density (trees per 100m)
+
+Density rewards short, packed blocks over long streets that happen to have many trees spread thin.
+
+```{r}
+#| label: map-density
+
+# filter to streets with at least 5 trees to suppress stub-segment noise
+streets_dense <- streets_sf %>% filter(total_trees >= 5)
+
+maplibre(style = openfreemap_style("bright"), bounds = streets_dense) %>%
+  add_line_layer(
+    id           = "all-streets",
+    source       = all_streets,
+    line_color   = "#dddddd",
+    line_width   = 1,
+    line_opacity = 0.4
+  ) %>%
+  add_line_layer(
+    id         = "streets-density",
+    source     = streets_dense,
+    line_color = interpolate(
+      column = "density",
+      values = c(0, median(streets_dense$density), max(streets_dense$density)),
+      stops  = c("#edf8e9", "#74c476", "#00441b")
+    ),
+    line_width   = interpolate(
+      column = "density",
+      values = c(0, max(streets_dense$density)),
+      stops  = c(1.5, 6)
+    ),
+    line_opacity = 0.9,
+    tooltip      = "street_label",
+    popup        = concat(
+      "<b>", get_column("street_label"), "</b><br/>",
+      "Trees / 100m: ", number_format(get_column("density"), 1), "<br/>",
+      "Total trees: ", get_column("total_trees"), "<br/>",
+      "Length: ", number_format(get_column("total_length"), 0), "m"
+    )
+  )
+```
+
+```{r}
+#| label: table-density
+
+top30_density <- street_summary %>%
+  filter(total_trees >= 5) %>%
+  arrange(desc(density)) %>%
+  head(30) %>%
+  mutate(rank = row_number())
+
+top30_density %>%
+  transmute(
+    `#`             = rank,
+    Street          = street_label,
+    Type            = street_type,
+    `Trees / 100m`  = round(density, 1),
+    `Total trees`   = total_trees,
+    `Length (m)`    = round(total_length),
+    Segments        = n_segments
+  ) %>%
+  datatable(
+    caption  = "Top 30 streets by cherry blossom density (min. 5 trees)",
+    rownames = FALSE,
+    options  = list(pageLength = 30, dom = "t")
+  )
+```
+
+## Top 30 density streets — labelled map
+
+Numbers correspond to the density ranking in the table above. Shaded blobs group streets that are within ~400m of each other.
+
+```{r}
+#| label: map-density-labelled
+
+neighbourhoods <- st_read(here("data/original/local-area-boundary.geojson"), quiet = TRUE)
+
+# Centroids of top 30 streets for label placement
+top30_sf <- streets_sf %>%
+  filter(total_trees >= 5) %>%
+  arrange(desc(density)) %>%
+  head(30) %>%
+  mutate(
+    rank       = row_number(),
+    rank_label = as.character(rank)
+  ) %>%
+  st_centroid()
+
+# Cluster nearby streets into blobs by buffering centroids and unioning overlaps.
+# Project to UTM 10N (metres) for accurate buffering, then back to WGS84.
+top30_clusters <- top30_sf %>%
+  st_transform(32610) %>%
+  st_buffer(500) %>% # change this to make the circles bigger
+  st_union() %>%
+  st_cast("POLYGON") %>%
+  st_as_sf() %>%
+  mutate(cluster_id = row_number()) %>%
+  st_transform(4326)
+
+maplibre(style = openfreemap_style("bright"), bounds = streets_dense) %>%
+  # --- 1. Neighbourhood boundaries (bottom) ---
+  add_fill_layer(
+    id           = "neighbourhoods-fill",
+    source       = neighbourhoods,
+    fill_color   = "transparent",
+    fill_opacity = 0,
+    tooltip      = "name"
+  ) %>%
+  add_line_layer(
+    id           = "neighbourhoods-borders",
+    source       = neighbourhoods,
+    line_color   = "#aaaaaa",
+    line_width   = 1,
+    line_opacity = 0.6,
+    line_dasharray = c(2, 1)
+  ) %>%
+  # --- 2. Cluster blobs ---
+  add_fill_layer(
+    id           = "clusters-fill",
+    source       = top30_clusters,
+    fill_color   = "#fde68a",
+    fill_opacity = 0.25
+  ) %>%
+  add_line_layer(
+    id           = "clusters-border",
+    source       = top30_clusters,
+    line_color   = "#d97706",
+    line_width   = 1.5,
+    line_opacity = 0.7
+  ) %>%
+  # --- 3. All streets (context) ---
+  add_line_layer(
+    id           = "all-streets",
+    source       = all_streets,
+    line_color   = "#dddddd",
+    line_width   = 1,
+    line_opacity = 0.4
+  ) %>%
+  # --- 4. Density streets (coloured) ---
+  add_line_layer(
+    id         = "streets-density",
+    source     = streets_dense,
+    line_color = interpolate(
+      column = "density",
+      values = c(0, median(streets_dense$density), max(streets_dense$density)),
+      stops  = c("#edf8e9", "#74c476", "#00441b")
+    ),
+    line_width   = interpolate(
+      column = "density",
+      values = c(0, max(streets_dense$density)),
+      stops  = c(1.5, 6)
+    ),
+    line_opacity = 0.9,
+    tooltip      = "street_label",
+    popup        = concat(
+      "<b>", get_column("street_label"), "</b><br/>",
+      "Trees / 100m: ", number_format(get_column("density"), 1), "<br/>",
+      "Total trees: ", get_column("total_trees")
+    )
+  ) %>%
+  # --- 5. Numbered circles + labels (top) ---
+  add_circle_layer(
+    id                  = "top30-circles",
+    source              = top30_sf,
+    circle_radius       = 11,
+    circle_color        = "white",
+    circle_stroke_color = "#00441b",
+    circle_stroke_width = 2,
+    circle_opacity      = 0.95,
+    tooltip             = "street_label",
+    popup               = concat(
+      "<b>#", get_column("rank"), " — ", get_column("street_label"), "</b><br/>",
+      "Trees / 100m: ", number_format(get_column("density"), 1), "<br/>",
+      "Total trees: ", get_column("total_trees"), "<br/>",
+      "Length: ", number_format(get_column("total_length"), 0), "m"
+    )
+  ) %>%
+  add_symbol_layer(
+    id         = "top30-labels",
+    source     = top30_sf,
+    text_field = get_column("rank_label"),
+    text_size  = 11,
+    text_color = "#00441b",
+    text_font  = list("Open Sans Bold")
+  )
+```
