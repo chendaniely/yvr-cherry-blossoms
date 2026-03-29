@@ -1,0 +1,165 @@
+---
+title: "Cherry Blossoms by Vancouver Neighbourhood"
+format:
+  gfm:
+    embed-resources: true
+    toc: true
+    toc-depth: 2
+    prefer-html: true
+---
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(sf)
+library(dplyr)
+library(mapgl)
+library(DT)
+library(here)
+```
+
+```{r}
+#| label: load-data
+#| message: false
+
+neighbourhoods <- st_read(here("data/original/local-area-boundary.geojson"), quiet = TRUE)
+cherry_trees   <- st_read(here("data/final/cherry_blossoms.geojson"), quiet = TRUE)
+
+cherry_trees <- st_transform(cherry_trees, st_crs(neighbourhoods))
+```
+
+```{r}
+#| label: analysis
+
+# Count trees per neighbourhood via spatial join
+tree_neighbourhood <- st_join(cherry_trees, neighbourhoods, join = st_within)
+
+tree_counts <- tree_neighbourhood %>%
+  st_drop_geometry() %>%
+  count(name, name = "tree_count")
+
+# Join counts back; calculate area and density
+neighbourhoods <- neighbourhoods %>%
+  mutate(area_km2 = as.numeric(st_area(geometry)) / 1e6) %>%
+  left_join(tree_counts, by = "name") %>%
+  mutate(
+    tree_count    = replace(tree_count, is.na(tree_count), 0),
+    trees_per_km2 = tree_count / area_km2
+  )
+```
+
+## Total cherry blossoms per neighbourhood
+
+```{r}
+#| label: map-count
+
+maplibre(style = openfreemap_style("bright"), bounds = neighbourhoods) %>%
+  add_fill_layer(
+    id           = "neighbourhood-count",
+    source       = neighbourhoods,
+    fill_color   = interpolate(
+      column   = "tree_count",
+      values   = c(0, median(neighbourhoods$tree_count), max(neighbourhoods$tree_count)),
+      stops    = c("#fff7ec", "#fc8d59", "#7f0000"),
+      na_color = "#cccccc"
+    ),
+    fill_opacity = 0.75,
+    tooltip      = "name",
+    popup        = concat(
+      "<b>", get_column("name"), "</b><br/>",
+      "Cherry blossoms: ", get_column("tree_count")
+    )
+  ) %>%
+  add_line_layer(
+    id           = "neighbourhood-borders",
+    source       = neighbourhoods,
+    line_color   = "white",
+    line_width   = 1,
+    line_opacity = 0.8
+  ) %>%
+  add_continuous_legend(
+    legend_title = "Total cherry blossoms",
+    values       = c(0, max(neighbourhoods$tree_count)),
+    colors       = c("#fff7ec", "#7f0000"),
+    position     = "bottom-right"
+  )
+```
+
+```{r}
+#| label: table-count
+
+neighbourhoods %>%
+  st_drop_geometry() %>%
+  transmute(
+    Neighbourhood   = name,
+    `Total trees`   = tree_count,
+    `Area (km²)`    = round(area_km2, 2),
+    `Trees per km²` = round(trees_per_km2, 1)
+  ) %>%
+  arrange(desc(`Total trees`)) %>%
+  datatable(
+    caption  = "Neighbourhoods ranked by total cherry blossoms",
+    rownames = FALSE,
+    options  = list(pageLength = 22, dom = "t")
+  )
+```
+
+## Cherry blossom density per neighbourhood
+
+```{r}
+#| label: map-density
+
+maplibre(style = openfreemap_style("bright"), bounds = neighbourhoods) %>%
+  add_fill_layer(
+    id           = "neighbourhood-density",
+    source       = neighbourhoods,
+    fill_color   = interpolate(
+      column   = "trees_per_km2",
+      values   = c(0, median(neighbourhoods$trees_per_km2), max(neighbourhoods$trees_per_km2)),
+      stops    = c("#f7fcf0", "#41ab5d", "#00441b"),
+      na_color = "#cccccc"
+    ),
+    fill_opacity = 0.75,
+    tooltip      = "name",
+    popup        = concat(
+      "<b>", get_column("name"), "</b><br/>",
+      "Trees per km²: ", number_format(get_column("trees_per_km2"), 1), "<br/>",
+      "Total trees: ", get_column("tree_count"), "<br/>",
+      "Area: ", number_format(get_column("area_km2"), 2), " km²"
+    )
+  ) %>%
+  add_line_layer(
+    id           = "neighbourhood-borders",
+    source       = neighbourhoods,
+    line_color   = "white",
+    line_width   = 1,
+    line_opacity = 0.8
+  ) %>%
+  add_continuous_legend(
+    legend_title = "Cherry blossoms per km²",
+    values       = c(0, max(neighbourhoods$trees_per_km2)),
+    colors       = c("#f7fcf0", "#00441b"),
+    position     = "bottom-right"
+  )
+```
+
+```{r}
+#| label: table-density
+
+neighbourhoods %>%
+  st_drop_geometry() %>%
+  transmute(
+    Neighbourhood   = name,
+    `Total trees`   = tree_count,
+    `Area (km²)`    = round(area_km2, 2),
+    `Trees per km²` = round(trees_per_km2, 1)
+  ) %>%
+  arrange(desc(`Trees per km²`)) %>%
+  datatable(
+    caption  = "Neighbourhoods ranked by cherry blossom density",
+    rownames = FALSE,
+    options  = list(pageLength = 22, dom = "t")
+  )
+```
