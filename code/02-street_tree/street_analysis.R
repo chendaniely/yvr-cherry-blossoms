@@ -39,8 +39,8 @@ streets_counted <- streets_joined %>%
   rename(street_label = street_label.x, street_type = street_type.x) %>%
   mutate(
     tree_count = replace_na(tree_count, 0),
-    length_m   = as.numeric(st_length(geometry)),
-    density    = tree_count / length_m * 100
+    length_m = as.numeric(st_length(geometry)),
+    density = tree_count / length_m * 100
   )
 
 # --- Aggregate to street level (combine all block segments per street name) ---
@@ -50,10 +50,10 @@ street_summary <- streets_counted %>%
   filter(tree_count > 0) %>%
   group_by(street_label, street_type) %>%
   summarise(
-    total_trees  = sum(tree_count),
+    total_trees = sum(tree_count),
     total_length = sum(length_m),
-    n_segments   = n(),
-    .groups      = "drop"
+    n_segments = n(),
+    .groups = "drop"
   ) %>%
   mutate(density = total_trees / total_length * 100) %>%
   arrange(desc(total_trees)) |>
@@ -76,13 +76,21 @@ streets_sf <- streets_counted %>%
   filter(tree_count > 0) %>%
   group_by(street_label, street_type) %>%
   summarise(
-    total_trees  = sum(tree_count),
+    total_trees = sum(tree_count),
     total_length = sum(length_m),
-    density      = sum(tree_count) / sum(length_m) * 100,
-    geometry     = st_union(geometry),
-    .groups      = "drop"
+    density = sum(tree_count) / sum(length_m) * 100,
+    geometry = st_union(geometry),
+    .groups = "drop"
   )
 
 # --- Save ---
-st_write(streets_sf,    "data/processed/streets_counted.geojson", delete_dsn = TRUE)
-write.csv(street_summary, "data/processed/street_summary.csv",   row.names = FALSE)
+st_write(
+  streets_sf,
+  "data/processed/streets_counted.geojson",
+  delete_dsn = TRUE
+)
+write.csv(
+  street_summary,
+  "data/processed/street_summary.csv",
+  row.names = FALSE
+)

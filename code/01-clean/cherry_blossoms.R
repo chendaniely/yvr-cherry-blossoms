@@ -15,10 +15,17 @@ cherry_names <- unique(trees$common_name)[str_detect(
   "cherry|CHERRY"
 )]
 
-jap_flower_cherry <- cherry_names[str_detect(cherry_names, "JAP|jap|FLOWER|flower")]
+jap_flower_cherry <- cherry_names[str_detect(
+  cherry_names,
+  "JAP|jap|FLOWER|flower"
+)]
 
 cherry_blossoms <- trees %>%
   filter(common_name %in% jap_flower_cherry)
 
 # --- Save ---
-st_write(cherry_blossoms, "data/final/cherry_blossoms.geojson", delete_dsn = TRUE)
+st_write(
+  cherry_blossoms,
+  "data/final/cherry_blossoms.geojson",
+  delete_dsn = TRUE
+)
