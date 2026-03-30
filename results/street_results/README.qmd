@@ -274,3 +274,8 @@ maplibre(style = openfreemap_style("bright"), bounds = streets_dense) %>%
     text_font  = list("Open Sans Bold")
   )
 ```
+
+```{r}
+# --- Save for downstream TSP analysis ---
+st_write(top30_sf, here("data/processed/top30_streets.geojson"), delete_dsn = TRUE)
+```
