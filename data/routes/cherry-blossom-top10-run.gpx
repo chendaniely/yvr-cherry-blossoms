@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <gpx xmlns="http://www.topografix.com/GPX/1/1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="1.1" creator="yvr-cherry-blossoms" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 http://www.topografix.com/GPX/1/1/gpx.xsd">
   <metadata>
-    <name>Vancouver Cherry Blossom Marathon — Walk</name>
-    <desc>Top 10 cherry blossom streets in Vancouver by density. Road-following route via OSRM.</desc>
-    <time>2026-03-30T01:05:27Z</time>
+    <name>Vancouver Cherry Blossom Marathon — Run (Top 10)</name>
+    <desc>Top 10 cherry blossom streets by density. Foot-routing via OSRM.</desc>
+    <time>2026-03-30T05:17:23Z</time>
   </metadata>
   <wpt lat="49.272268" lon="-123.126195">
     <name>Stop 1 — 1400 HOMER ST</name>
@@ -46,7 +46,7 @@
     <desc>19.3 trees/100m · 18 total trees</desc>
   </wpt>
   <trk>
-    <name>Vancouver Cherry Blossom Marathon — Walk</name>
+    <name>Vancouver Cherry Blossom Marathon — Run (Top 10)</name>
     <trkseg>
       <trkpt lat="49.272235" lon="-123.126068"/>
       <trkpt lat="49.272268" lon="-123.126048"/>
