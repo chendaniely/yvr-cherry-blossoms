@@ -10,7 +10,8 @@ data: \
 	data/final/cherry_blossoms.geojson \
 	data/final/snapped-tree-street.geojson \
 	data/processed/streets_counted.geojson \
-	data/processed/top30_streets.geojson
+	data/processed/top30_streets.geojson \
+	data/processed/osm_streets.geojson
 
 data/final/streets.geojson: \
 		code/01-clean/streets.R \
@@ -42,13 +43,19 @@ data/processed/street_summary.csv: \
 # street_results render also writes top30_streets.geojson as a side effect
 data/processed/top30_streets.geojson: results/street_results/README.html
 
+data/processed/osm_streets.geojson: \
+		code/01-clean/osm_streets.R \
+		data/original/local-area-boundary.geojson
+	Rscript code/01-clean/osm_streets.R
+
 # ── 2. Results ────────────────────────────────────────────────────────────────
 
 results: \
 	results/neighbourhood_choropleth/README.html \
 	results/street_results/README.html \
 	results/tsp_route/README.html \
-	results/google_route/README.html
+	results/google_route/README.html \
+	results/trees/README.html
 
 results/neighbourhood_choropleth/README.html: \
 		results/neighbourhood_choropleth/README.qmd \
@@ -65,13 +72,19 @@ results/street_results/README.html: \
 results/tsp_route/README.html: \
 		results/tsp_route/README.qmd \
 		data/processed/top30_streets.geojson \
-		data/final/streets.geojson
+		data/processed/osm_streets.geojson
 	quarto render results/tsp_route/README.qmd
 
 results/google_route/README.html: \
 		results/google_route/README.qmd \
 		data/processed/top30_streets.geojson
 	quarto render results/google_route/README.qmd
+
+results/trees/README.html: \
+		results/trees/README.qmd \
+		data/final/cherry_blossoms.geojson \
+		data/original/local-area-boundary.geojson
+	quarto render results/trees/README.qmd
 
 # ── 3. GPX routes ─────────────────────────────────────────────────────────────
 
@@ -100,3 +113,4 @@ clean:
 	rm -f results/street_results/README.html
 	rm -f results/tsp_route/README.html
 	rm -f results/google_route/README.html
+	rm -f results/trees/README.html

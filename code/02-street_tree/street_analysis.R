@@ -6,8 +6,37 @@ library(tidyr)
 streets <- st_read("data/final/streets.geojson")
 snapped <- st_read("data/final/snapped-tree-street.geojson")
 
+# --- Bloom-readiness thresholds (adjust these to tune which trees count) ---
+# Japanese flowering cherries typically first bloom at ~5 years; mature trees are
+# more reliable. Height and diameter serve as proxies for structural maturity.
+
+# from claude:
+# The height:diameter ratio is left here as a potential future filter — a low
+# ratio (squat tree) may indicate stress or slow growth, but the evidence for
+# it predicting bloom is weaker than age/size alone, so it is commented out.
+
+
+min_age_years <- 5 # years since planting
+min_height_m <- 2.5 # metres
+min_diameter_cm <- 7 # centimetres (trunk diameter)
+# min_hd_ratio  <- 0.3  # height_m / diameter_cm — uncomment to test
+
+blooming_trees <- snapped
+
+# the age has 72% of data missing
+# there's not enough trees measured under 2.5m to make a change in the analysis
+# snapped%>%
+#   filter(
+#     #!is.na(age_years), # too much missing data in age to be useful
+#     !is.na(height_m),
+#     !is.na(diameter_cm),
+#     #age_years >= min_age_years, # too much missing data to be useful
+#     height_m >= min_height_m,
+#     diameter_cm >= min_diameter_cm
+#   )
+
 # --- Count trees per street segment ---
-tree_counts <- snapped %>%
+tree_counts <- blooming_trees %>%
   st_drop_geometry() %>%
   count(street_id, street_label, street_type, name = "tree_count")
 

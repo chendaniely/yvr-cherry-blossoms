@@ -20,8 +20,13 @@ jap_flower_cherry <- cherry_names[str_detect(
   "JAP|jap|FLOWER|flower"
 )]
 
+# NOTE: the age will be frozen from last compute time, not actual to current time
+# this shouldn't be an issue since we are about years (and 72% of the data is missing)
 cherry_blossoms <- trees %>%
-  filter(common_name %in% jap_flower_cherry)
+  filter(common_name %in% jap_flower_cherry) %>%
+  mutate(
+    age_years = as.numeric(difftime(Sys.Date(), as.Date(date_planted), units = "days")) / 365.25
+  )
 
 # --- Save ---
 st_write(

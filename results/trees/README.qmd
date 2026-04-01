@@ -1,0 +1,457 @@
+---
+title: "Cherry Blossom Trees — Individual Tree Map"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-depth: 2
+---
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(sf)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(DT)
+library(mapgl)
+library(here)
+```
+
+```{r}
+#| label: load-data
+#| message: false
+
+neighbourhoods <- st_read(
+  here("data/original/local-area-boundary.geojson"),
+  quiet = TRUE
+)
+cherry_trees <- st_read(
+  here("data/final/cherry_blossoms.geojson"),
+  quiet = TRUE
+)
+
+cherry_trees <- st_transform(cherry_trees, st_crs(neighbourhoods))
+```
+
+```{r}
+#| label: prepare-data
+
+# Spatial join to attach neighbourhood name to each tree
+cherry_trees <- st_join(
+  cherry_trees,
+  neighbourhoods %>% select(neighbourhood = name),
+  join = st_within
+)
+```
+
+```{r}
+#| label: species-colours
+
+# 10 cherry blossom species — pinks, whites, and warm tones
+species_levels <- sort(unique(cherry_trees$common_name))
+
+species_colours <- c(
+  "AKEBONO FLOWERING CHERRY" = "#f4a7b9",
+  "AMANOGAWA JAPANESE CHERRY" = "#e8739a",
+  "DOUBLE WEEPING JAPANESE CHERRY" = "#c94080",
+  "JAPANESE FLOWERING CHERRY" = "#f9c8d8",
+  "KWANZAN FLOWERING CHERRY" = "#e84393",
+  "OJOCHIN JAPANESE CHERRY" = "#d4548a",
+  "SARGENT FLOWERING CHERRY" = "#b03060",
+  "SHOGETSU JAPANESE CHERRY" = "#fde8f0",
+  "UKON JAPANESE CHERRY" = "#c8b400",
+  "WEEPING JAPANESE CHERRY" = "#9b2257"
+)
+
+# Build match_expr pairs: species name -> colour
+colour_pairs <- unlist(
+  lapply(names(species_colours), function(s) {
+    list(s, unname(species_colours[s]))
+  }),
+  recursive = FALSE
+)
+```
+
+```{r}
+#| label: split-data
+#| echo: false
+
+trees_short <- cherry_trees %>% filter(!is.na(height_m) & height_m < 2.5)
+trees_tall <- cherry_trees %>% filter(!is.na(height_m) & height_m >= 2.5)
+```
+
+## All trees
+
+```{r}
+#| label: map
+
+maplibre(
+  style = openfreemap_style("bright"),
+  bounds = neighbourhoods
+) %>%
+  # Neighbourhood polygon base
+  add_fill_layer(
+    id = "neighbourhoods",
+    source = neighbourhoods,
+    fill_color = "#f5e6ef",
+    fill_opacity = 0.35
+  ) %>%
+  add_line_layer(
+    id = "neighbourhood-borders",
+    source = neighbourhoods,
+    line_color = "#c47fa0",
+    line_width = 1,
+    line_opacity = 0.7
+  ) %>%
+  # Individual trees coloured by species
+  add_circle_layer(
+    id = "cherry-trees",
+    source = cherry_trees,
+    circle_color = match_expr(
+      column = "common_name",
+      values = names(species_colours),
+      stops = unname(species_colours),
+      default = "#aaaaaa"
+    ),
+    circle_radius = 4,
+    circle_opacity = 0.8,
+    circle_stroke_color = "white",
+    circle_stroke_width = 0.5,
+    tooltip = concat(
+      "<b>",
+      get_column("common_name"),
+      "</b><br/>",
+      "<i>Prunus ",
+      get_column("species_name"),
+      " '",
+      get_column("cultivar_name"),
+      "'</i><br/><br/>",
+      "Neighbourhood: ",
+      get_column("neighbourhood"),
+      "<br/>",
+      "Age: ",
+      get_column("age_years"),
+      " yrs<br/>",
+      "Height: ",
+      get_column("height_m"),
+      " m<br/>",
+      "Diameter: ",
+      get_column("diameter_cm"),
+      " cm"
+    )
+  ) %>%
+  add_categorical_legend(
+    legend_title = "Species",
+    values = names(species_colours),
+    colors = unname(species_colours),
+    position = "bottom-right"
+  )
+```
+
+## Trees under 2.5 m
+
+`r nrow(trees_short)` trees with a recorded height below 2.5 m.
+
+```{r}
+#| label: map-short
+
+maplibre(style = openfreemap_style("bright"), bounds = neighbourhoods) %>%
+  add_fill_layer(
+    id = "neighbourhoods",
+    source = neighbourhoods,
+    fill_color = "#f5e6ef",
+    fill_opacity = 0.35
+  ) %>%
+  add_line_layer(
+    id = "neighbourhood-borders",
+    source = neighbourhoods,
+    line_color = "#c47fa0",
+    line_width = 1,
+    line_opacity = 0.7
+  ) %>%
+  add_circle_layer(
+    id = "cherry-trees-short",
+    source = trees_short,
+    circle_color = match_expr(
+      column = "common_name",
+      values = names(species_colours),
+      stops = unname(species_colours),
+      default = "#aaaaaa"
+    ),
+    circle_radius = 4,
+    circle_opacity = 0.8,
+    circle_stroke_color = "white",
+    circle_stroke_width = 0.5,
+    tooltip = concat(
+      "<b>",
+      get_column("common_name"),
+      "</b><br/>",
+      "<i>Prunus ",
+      get_column("species_name"),
+      " '",
+      get_column("cultivar_name"),
+      "'</i><br/><br/>",
+      "Neighbourhood: ",
+      get_column("neighbourhood"),
+      "<br/>",
+      "Age: ",
+      get_column("age_years"),
+      " yrs<br/>",
+      "Height: ",
+      get_column("height_m"),
+      " m<br/>",
+      "Diameter: ",
+      get_column("diameter_cm"),
+      " cm"
+    )
+  ) %>%
+  add_categorical_legend(
+    legend_title = "Species",
+    values = names(species_colours),
+    colors = unname(species_colours),
+    position = "bottom-right"
+  )
+```
+
+## Trees 2.5 m and taller
+
+`r nrow(trees_tall)` trees with a recorded height of 2.5 m or more.
+
+```{r}
+#| label: map-tall
+
+maplibre(style = openfreemap_style("bright"), bounds = neighbourhoods) %>%
+  add_fill_layer(
+    id = "neighbourhoods",
+    source = neighbourhoods,
+    fill_color = "#f5e6ef",
+    fill_opacity = 0.35
+  ) %>%
+  add_line_layer(
+    id = "neighbourhood-borders",
+    source = neighbourhoods,
+    line_color = "#c47fa0",
+    line_width = 1,
+    line_opacity = 0.7
+  ) %>%
+  add_circle_layer(
+    id = "cherry-trees-tall",
+    source = trees_tall,
+    circle_color = match_expr(
+      column = "common_name",
+      values = names(species_colours),
+      stops = unname(species_colours),
+      default = "#aaaaaa"
+    ),
+    circle_radius = 4,
+    circle_opacity = 0.8,
+    circle_stroke_color = "white",
+    circle_stroke_width = 0.5,
+    tooltip = concat(
+      "<b>",
+      get_column("common_name"),
+      "</b><br/>",
+      "<i>Prunus ",
+      get_column("species_name"),
+      " '",
+      get_column("cultivar_name"),
+      "'</i><br/><br/>",
+      "Neighbourhood: ",
+      get_column("neighbourhood"),
+      "<br/>",
+      "Age: ",
+      get_column("age_years"),
+      " yrs<br/>",
+      "Height: ",
+      get_column("height_m"),
+      " m<br/>",
+      "Diameter: ",
+      get_column("diameter_cm"),
+      " cm"
+    )
+  ) %>%
+  add_categorical_legend(
+    legend_title = "Species",
+    values = names(species_colours),
+    colors = unname(species_colours),
+    position = "bottom-right"
+  )
+```
+
+## Data completeness
+
+How many trees have recorded values for the three columns that drive the bloom-readiness filter — `date_planted` (→ age), `height_m`, and `diameter_cm`?
+
+```{r}
+#| label: eda-date-planted-inline
+#| echo: false
+
+n_missing_date <- sum(is.na(cherry_trees$date_planted))
+pct_missing_date <- round(n_missing_date / nrow(cherry_trees) * 100, 1)
+```
+
+`date_planted` is missing for **`r n_missing_date`** trees (**`r pct_missing_date`%** of the dataset), meaning age cannot be computed for them and they will always be excluded by the age filter regardless of thresholds.
+
+```{r}
+#| label: eda-overall
+
+total <- nrow(cherry_trees)
+
+overall <- cherry_trees %>%
+  st_drop_geometry() %>%
+  summarise(
+    across(
+      c(date_planted, height_m, diameter_cm),
+      list(
+        n_missing = \(x) sum(is.na(x)),
+        pct_missing = \(x) round(mean(is.na(x)) * 100, 1),
+        n_recorded = \(x) sum(!is.na(x)),
+        pct_recorded = \(x) round(mean(!is.na(x)) * 100, 1)
+      )
+    )
+  ) %>%
+  pivot_longer(
+    everything(),
+    names_to = c("column", ".value"),
+    names_pattern = "(.+)_(n_missing|pct_missing|n_recorded|pct_recorded)"
+  ) %>%
+  mutate(
+    column = recode(
+      column,
+      date_planted = "date_planted → age_years",
+      height_m = "height_m",
+      diameter_cm = "diameter_cm"
+    ),
+    total = total
+  ) %>%
+  select(
+    Column = column,
+    Total = total,
+    Recorded = n_recorded,
+    `% Recorded` = pct_recorded,
+    Missing = n_missing,
+    `% Missing` = pct_missing
+  )
+
+datatable(
+  overall,
+  caption = paste("Overall data completeness (n =", total, "trees)"),
+  rownames = FALSE,
+  options = list(dom = "t", pageLength = 3)
+) %>%
+  formatStyle(
+    "% Missing",
+    backgroundColor = styleInterval(
+      c(10, 50),
+      c("#d4edda", "#fff3cd", "#f8d7da")
+    )
+  )
+```
+
+```{r}
+#| label: eda-by-species
+#| fig-width: 9
+#| fig-height: 5
+
+by_species <- cherry_trees %>%
+  st_drop_geometry() %>%
+  group_by(Species = common_name) %>%
+  summarise(
+    Total = n(),
+    Age = sum(!is.na(date_planted)),
+    Height = sum(!is.na(height_m)),
+    Diameter = sum(!is.na(diameter_cm)),
+    All_three = sum(
+      !is.na(date_planted) & !is.na(height_m) & !is.na(diameter_cm)
+    ),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    `Age %` = round(Age / Total * 100, 1),
+    `Height %` = round(Height / Total * 100, 1),
+    `Diameter %` = round(Diameter / Total * 100, 1),
+    `All three %` = round(All_three / Total * 100, 1)
+  ) %>%
+  arrange(desc(Total))
+
+datatable(
+  by_species %>%
+    select(
+      Species,
+      Total,
+      Age,
+      `Age %`,
+      Height,
+      `Height %`,
+      Diameter,
+      `Diameter %`,
+      `All three %`
+    ),
+  caption = "Recorded values per column, by species",
+  rownames = FALSE,
+  options = list(dom = "t", pageLength = 15)
+) %>%
+  formatStyle(
+    c("Age %", "Height %", "Diameter %", "All three %"),
+    backgroundColor = styleInterval(
+      c(50, 90),
+      c("#f8d7da", "#fff3cd", "#d4edda")
+    )
+  )
+```
+
+```{r}
+#| label: eda-plot
+#| fig-width: 9
+#| fig-height: 5
+
+by_species %>%
+  select(
+    Species,
+    Age = `Age %`,
+    Height = `Height %`,
+    Diameter = `Diameter %`
+  ) %>%
+  pivot_longer(-Species, names_to = "Column", values_to = "pct_recorded") %>%
+  mutate(Species = stringr::str_to_title(Species)) %>%
+  ggplot(aes(
+    x = reorder(Species, pct_recorded),
+    y = pct_recorded,
+    fill = Column
+  )) +
+  geom_col(position = "dodge") +
+  geom_hline(
+    yintercept = 90,
+    linetype = "dashed",
+    colour = "grey40",
+    linewidth = 0.4
+  ) +
+  coord_flip() +
+  scale_fill_manual(
+    values = c(Age = "#e84393", Height = "#b03060", Diameter = "#c8b400")
+  ) +
+  scale_y_continuous(limits = c(0, 100), labels = \(x) paste0(x, "%")) +
+  labs(
+    title = "% of trees with recorded values, by species and column",
+    subtitle = "Dashed line = 90% threshold",
+    x = NULL,
+    y = "% recorded",
+    fill = NULL
+  ) +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+## Conclusion
+
+- Can't use the date to calculate age for filtering trees. There's too much missing data to make it useful.
+  - When I first ran the analysis filtering on trees older than 5 years old, the results made no sense
+    - No areas from the original top 30 analysis
+    - David Lam Park had no trees (this is where the cherry blossom festival is held!)
+- Tree dimension data is recorded and has 100% complete data.
+  - However this will assume the height is up to date.
+- I can count the number of trees under 2.5m in the dataset, so using these dimensions won't really affect the final analysis.

@@ -7,6 +7,8 @@ format:
     toc-depth: 2
 ---
 
+Inspired by: <https://walker-data.com/spopt-r/articles/routing.html>
+
 ```{r}
 #| label: setup
 #| message: false
@@ -26,19 +28,31 @@ library(here)
 #| label: load-data
 #| message: false
 
-top30_stops <- st_read(here("data/processed/top30_streets.geojson"), quiet = TRUE)
-tsp_stops   <- top30_stops %>% filter(rank <= 10)
-streets     <- st_read(here("data/final/streets.geojson"), quiet = TRUE)
+top30_stops <- st_read(
+  here("data/processed/top30_streets.geojson"),
+  quiet = TRUE
+)
+tsp_stops <- top30_stops %>% filter(rank <= 10)
 ```
 
 ## Build road network
 
 ```{r}
+#| label: fetch-osm
+#| message: false
+
+osm_streets <- st_read(
+  here("data/processed/osm_streets.geojson"),
+  quiet = TRUE
+) %>%
+  st_transform(st_crs(top30_stops))
+```
+
+```{r}
 #| label: build-network
 
 # Explode to individual linestrings so sfnetworks can build a clean graph
-streets_lines <- streets %>%
-  st_cast("MULTILINESTRING") %>%
+streets_lines <- osm_streets %>%
   st_cast("LINESTRING")
 
 # Build network, subdivide at intersections, smooth degree-2 nodes
@@ -49,7 +63,7 @@ net <- as_sfnetwork(streets_lines, directed = FALSE) %>%
   mutate(weight = edge_length())
 
 # Keep only the largest connected component so no stop is unreachable
-components   <- igraph::components(net)
+components <- igraph::components(net)
 largest_comp <- which.max(components$csize)
 
 net_connected <- net %>%
@@ -60,7 +74,8 @@ net_connected <- net %>%
 network_nodes <- net_connected %>% activate("nodes") %>% st_as_sf()
 nearest_nodes <- st_nearest_feature(tsp_stops, network_nodes)
 
-cat(sprintf("Network: %d nodes, %d edges\n",
+cat(sprintf(
+  "Network: %d nodes, %d edges\n",
   igraph::vcount(net_connected),
   igraph::ecount(net_connected)
 ))
@@ -75,14 +90,17 @@ Network distances (metres) between all pairs of stops via road.
 
 cost_matrix <- igraph::distances(
   net_connected,
-  v       = nearest_nodes,
-  to      = nearest_nodes,
+  v = nearest_nodes,
+  to = nearest_nodes,
   weights = igraph::E(net_connected)$weight
 )
 
 n_inf <- sum(is.infinite(cost_matrix))
 if (n_inf > 0) {
-  warning(sprintf("%d unreachable stop pair(s) — check network connectivity.", n_inf))
+  warning(sprintf(
+    "%d unreachable stop pair(s) — check network connectivity.",
+    n_inf
+  ))
 } else {
   message("Cost matrix OK — all stops reachable.")
 }
@@ -97,13 +115,17 @@ Open route: starts at stop 1, does not need to return to start.
 
 result <- route_tsp(
   tsp_stops,
-  start       = 1,
-  end         = NULL,
+  start = 1,
+  end = NULL,
   cost_matrix = cost_matrix
 )
 
 meta <- attr(result, "spopt")
-cat(sprintf("Optimized route: %.0f m (%.1f km)\n", meta$total_cost, meta$total_cost / 1000))
+cat(sprintf(
+  "Optimized route: %.0f m (%.1f km)\n",
+  meta$total_cost,
+  meta$total_cost / 1000
+))
 cat(sprintf("Nearest-neighbor baseline: %.0f m\n", meta$nn_cost))
 cat(sprintf("Improvement: %.1f%%\n", meta$improvement_pct))
 ```
@@ -117,16 +139,16 @@ result_ordered <- result %>%
   filter(!is.na(.visit_order)) %>%
   arrange(.visit_order) %>%
   mutate(
-    label    = as.character(.visit_order),
+    label = as.character(.visit_order),
     stop_idx = row_number()
   )
 
 result_ordered %>%
   st_drop_geometry() %>%
   select(
-    Stop          = .visit_order,
-    Street        = street_label,
-    `Trees/100m`  = density,
+    Stop = .visit_order,
+    Street = street_label,
+    `Trees/100m` = density,
     `Total trees` = total_trees
   ) %>%
   mutate(`Trees/100m` = round(`Trees/100m`, 1)) %>%
@@ -146,12 +168,14 @@ ordered_nodes <- nearest_nodes[result_ordered$stop_idx]
 route_legs <- lapply(seq_len(nrow(result_ordered) - 1), function(i) {
   path <- igraph::shortest_paths(
     net_connected,
-    from    = ordered_nodes[i],
-    to      = ordered_nodes[i + 1],
+    from = ordered_nodes[i],
+    to = ordered_nodes[i + 1],
     weights = igraph::E(net_connected)$weight
   )$vpath[[1]]
 
-  if (length(path) < 2) return(NULL)
+  if (length(path) < 2) {
+    return(NULL)
+  }
 
   edge_ids <- igraph::get_edge_ids(
     net_connected,
@@ -163,7 +187,9 @@ route_legs <- lapply(seq_len(nrow(result_ordered) - 1), function(i) {
 
   # get_edge_ids returns 0 for unmatched pairs — drop them
   edge_ids <- edge_ids[edge_ids > 0]
-  if (length(edge_ids) == 0) return(NULL)
+  if (length(edge_ids) == 0) {
+    return(NULL)
+  }
 
   edges_sf %>%
     slice(edge_ids) %>%
@@ -179,8 +205,6 @@ route_line <- bind_rows(Filter(Negate(is.null), route_legs))
 ```{r}
 #| label: map-route
 
-all_streets <- st_read(here("data/final/streets.geojson"), quiet = TRUE)
-
 # Cluster blobs from all 30 stops
 top30_clusters <- top30_stops %>%
   st_transform(32610) %>%
@@ -192,84 +216,90 @@ top30_clusters <- top30_stops %>%
   st_transform(4326)
 
 maplibre(style = openfreemap_style("bright"), bounds = top30_stops) %>%
-  # Background streets
-  add_line_layer(
-    id           = "all-streets",
-    source       = all_streets,
-    line_color   = "#dddddd",
-    line_width   = 1,
-    line_opacity = 0.3
-  ) %>%
   # Cluster blobs (top 30)
   add_fill_layer(
-    id           = "clusters-fill",
-    source       = top30_clusters,
-    fill_color   = "#fde68a",
+    id = "clusters-fill",
+    source = top30_clusters,
+    fill_color = "#fde68a",
     fill_opacity = 0.25
   ) %>%
   add_line_layer(
-    id           = "clusters-border",
-    source       = top30_clusters,
-    line_color   = "#d97706",
-    line_width   = 1.5,
+    id = "clusters-border",
+    source = top30_clusters,
+    line_color = "#d97706",
+    line_width = 1.5,
     line_opacity = 0.7
   ) %>%
   # Road-following route (top 10 only)
   add_line_layer(
-    id             = "tsp-route",
-    source         = route_line,
-    line_color     = "#2563eb",
-    line_width     = 3,
-    line_opacity   = 0.8,
+    id = "tsp-route",
+    source = route_line,
+    line_color = "#2563eb",
+    line_width = 3,
+    line_opacity = 0.8,
     line_dasharray = c(2, 1)
   ) %>%
   # Top 30 circles (all locations, smaller)
   add_circle_layer(
-    id                  = "top30-circles",
-    source              = top30_stops,
-    circle_radius       = 10,
-    circle_color        = "white",
+    id = "top30-circles",
+    source = top30_stops,
+    circle_radius = 10,
+    circle_color = "white",
     circle_stroke_color = "#d97706",
     circle_stroke_width = 1.5,
-    circle_opacity      = 0.9,
-    tooltip             = "street_label",
-    popup               = concat(
-      "<b>#", get_column("rank"), " — ", get_column("street_label"), "</b><br/>",
-      "Trees / 100m: ", number_format(get_column("density"), 1), "<br/>",
-      "Total trees: ", get_column("total_trees")
+    circle_opacity = 0.9,
+    tooltip = "street_label",
+    popup = concat(
+      "<b>#",
+      get_column("rank"),
+      " — ",
+      get_column("street_label"),
+      "</b><br/>",
+      "Trees / 100m: ",
+      number_format(get_column("density"), 1),
+      "<br/>",
+      "Total trees: ",
+      get_column("total_trees")
     )
   ) %>%
   add_symbol_layer(
-    id         = "top30-labels",
-    source     = top30_stops,
+    id = "top30-labels",
+    source = top30_stops,
     text_field = get_column("rank_label"),
-    text_size  = 10,
+    text_size = 10,
     text_color = "#d97706",
-    text_font  = list("Open Sans Bold")
+    text_font = list("Open Sans Bold")
   ) %>%
   # Top 10 route stops on top (larger, blue)
   add_circle_layer(
-    id                  = "tsp-stops",
-    source              = result_ordered,
-    circle_radius       = 13,
-    circle_color        = "white",
+    id = "tsp-stops",
+    source = result_ordered,
+    circle_radius = 13,
+    circle_color = "white",
     circle_stroke_color = "#2563eb",
     circle_stroke_width = 2,
-    circle_opacity      = 0.95,
-    tooltip             = "street_label",
-    popup               = concat(
-      "<b>Stop ", get_column(".visit_order"), " — ", get_column("street_label"), "</b><br/>",
-      "Trees / 100m: ", number_format(get_column("density"), 1), "<br/>",
-      "Total trees: ", get_column("total_trees")
+    circle_opacity = 0.95,
+    tooltip = "street_label",
+    popup = concat(
+      "<b>Stop ",
+      get_column(".visit_order"),
+      " — ",
+      get_column("street_label"),
+      "</b><br/>",
+      "Trees / 100m: ",
+      number_format(get_column("density"), 1),
+      "<br/>",
+      "Total trees: ",
+      get_column("total_trees")
     )
   ) %>%
   add_symbol_layer(
-    id         = "tsp-labels",
-    source     = result_ordered,
+    id = "tsp-labels",
+    source = result_ordered,
     text_field = get_column("label"),
-    text_size  = 11,
+    text_size = 11,
     text_color = "#2563eb",
-    text_font  = list("Open Sans Bold")
+    text_font = list("Open Sans Bold")
   )
 ```
 
@@ -285,13 +315,17 @@ cost_matrix_euclidean <- as.matrix(dist(coords_matrix))
 
 result_eu <- route_tsp(
   tsp_stops,
-  start       = 1,
-  end         = NULL,
+  start = 1,
+  end = NULL,
   cost_matrix = cost_matrix_euclidean
 )
 
 meta_eu <- attr(result_eu, "spopt")
-cat(sprintf("Optimized route: %.0f m (%.1f km)\n", meta_eu$total_cost, meta_eu$total_cost / 1000))
+cat(sprintf(
+  "Optimized route: %.0f m (%.1f km)\n",
+  meta_eu$total_cost,
+  meta_eu$total_cost / 1000
+))
 cat(sprintf("Nearest-neighbor baseline: %.0f m\n", meta_eu$nn_cost))
 cat(sprintf("Improvement: %.1f%%\n", meta_eu$improvement_pct))
 ```
@@ -303,16 +337,16 @@ result_eu_ordered <- result_eu %>%
   filter(!is.na(.visit_order)) %>%
   arrange(.visit_order) %>%
   mutate(
-    label    = as.character(.visit_order),
+    label = as.character(.visit_order),
     stop_idx = row_number()
   )
 
 result_eu_ordered %>%
   st_drop_geometry() %>%
   select(
-    Stop          = .visit_order,
-    Street        = street_label,
-    `Trees/100m`  = density,
+    Stop = .visit_order,
+    Street = street_label,
+    `Trees/100m` = density,
     `Total trees` = total_trees
   ) %>%
   mutate(`Trees/100m` = round(`Trees/100m`, 1)) %>%
@@ -333,83 +367,89 @@ route_straight <- result_eu_ordered %>%
   mutate(route = "straight")
 
 maplibre(style = openfreemap_style("bright"), bounds = top30_stops) %>%
-  # Background streets
-  add_line_layer(
-    id           = "all-streets",
-    source       = all_streets,
-    line_color   = "#dddddd",
-    line_width   = 1,
-    line_opacity = 0.3
-  ) %>%
   # Cluster blobs (top 30)
   add_fill_layer(
-    id           = "clusters-fill",
-    source       = top30_clusters,
-    fill_color   = "#fde68a",
+    id = "clusters-fill",
+    source = top30_clusters,
+    fill_color = "#fde68a",
     fill_opacity = 0.25
   ) %>%
   add_line_layer(
-    id           = "clusters-border",
-    source       = top30_clusters,
-    line_color   = "#d97706",
-    line_width   = 1.5,
+    id = "clusters-border",
+    source = top30_clusters,
+    line_color = "#d97706",
+    line_width = 1.5,
     line_opacity = 0.7
   ) %>%
   # Straight-line route
   add_line_layer(
-    id             = "tsp-route-straight",
-    source         = route_straight,
-    line_color     = "#9333ea",
-    line_width     = 2.5,
-    line_opacity   = 0.8,
+    id = "tsp-route-straight",
+    source = route_straight,
+    line_color = "#9333ea",
+    line_width = 2.5,
+    line_opacity = 0.8,
     line_dasharray = c(2, 1)
   ) %>%
   # Top 30 circles
   add_circle_layer(
-    id                  = "top30-circles",
-    source              = top30_stops,
-    circle_radius       = 10,
-    circle_color        = "white",
+    id = "top30-circles",
+    source = top30_stops,
+    circle_radius = 10,
+    circle_color = "white",
     circle_stroke_color = "#d97706",
     circle_stroke_width = 1.5,
-    circle_opacity      = 0.9,
-    tooltip             = "street_label",
-    popup               = concat(
-      "<b>#", get_column("rank"), " — ", get_column("street_label"), "</b><br/>",
-      "Trees / 100m: ", number_format(get_column("density"), 1), "<br/>",
-      "Total trees: ", get_column("total_trees")
+    circle_opacity = 0.9,
+    tooltip = "street_label",
+    popup = concat(
+      "<b>#",
+      get_column("rank"),
+      " — ",
+      get_column("street_label"),
+      "</b><br/>",
+      "Trees / 100m: ",
+      number_format(get_column("density"), 1),
+      "<br/>",
+      "Total trees: ",
+      get_column("total_trees")
     )
   ) %>%
   add_symbol_layer(
-    id         = "top30-labels",
-    source     = top30_stops,
+    id = "top30-labels",
+    source = top30_stops,
     text_field = get_column("rank_label"),
-    text_size  = 10,
+    text_size = 10,
     text_color = "#d97706",
-    text_font  = list("Open Sans Bold")
+    text_font = list("Open Sans Bold")
   ) %>%
   # Top 10 route stops
   add_circle_layer(
-    id                  = "tsp-stops",
-    source              = result_eu_ordered,
-    circle_radius       = 13,
-    circle_color        = "white",
+    id = "tsp-stops",
+    source = result_eu_ordered,
+    circle_radius = 13,
+    circle_color = "white",
     circle_stroke_color = "#9333ea",
     circle_stroke_width = 2,
-    circle_opacity      = 0.95,
-    tooltip             = "street_label",
-    popup               = concat(
-      "<b>Stop ", get_column(".visit_order"), " — ", get_column("street_label"), "</b><br/>",
-      "Trees / 100m: ", number_format(get_column("density"), 1), "<br/>",
-      "Total trees: ", get_column("total_trees")
+    circle_opacity = 0.95,
+    tooltip = "street_label",
+    popup = concat(
+      "<b>Stop ",
+      get_column(".visit_order"),
+      " — ",
+      get_column("street_label"),
+      "</b><br/>",
+      "Trees / 100m: ",
+      number_format(get_column("density"), 1),
+      "<br/>",
+      "Total trees: ",
+      get_column("total_trees")
     )
   ) %>%
   add_symbol_layer(
-    id         = "tsp-labels",
-    source     = result_eu_ordered,
+    id = "tsp-labels",
+    source = result_eu_ordered,
     text_field = get_column("label"),
-    text_size  = 11,
+    text_size = 11,
     text_color = "#9333ea",
-    text_font  = list("Open Sans Bold")
+    text_font = list("Open Sans Bold")
   )
 ```
